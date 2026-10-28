@@ -1,0 +1,24 @@
+-- RazuMatch PostgreSQL schema. All timestamps are Unix epoch milliseconds, as in existing D1.
+BEGIN;
+CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL, profile TEXT NOT NULL DEFAULT '{}', completed INTEGER NOT NULL DEFAULT 0, created BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS likes (sender TEXT NOT NULL, recipient TEXT NOT NULL, kind TEXT NOT NULL, created BIGINT NOT NULL, PRIMARY KEY(sender,recipient));
+CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, sender TEXT NOT NULL, recipient TEXT NOT NULL, body TEXT NOT NULL, attachments TEXT NOT NULL DEFAULT '[]', created BIGINT NOT NULL);
+CREATE INDEX IF NOT EXISTS messages_sender_recipient_created ON messages(sender,recipient,created);
+CREATE TABLE IF NOT EXISTS uploads (id TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, scope TEXT NOT NULL, created BIGINT NOT NULL);
+CREATE INDEX IF NOT EXISTS uploads_owner_scope ON uploads(owner,scope);
+CREATE TABLE IF NOT EXISTS blocks (owner TEXT NOT NULL,target TEXT NOT NULL,PRIMARY KEY(owner,target));
+CREATE TABLE IF NOT EXISTS tickets (id TEXT PRIMARY KEY,owner TEXT NOT NULL,subject TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'open',created BIGINT NOT NULL,updated BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS ticket_messages (id TEXT PRIMARY KEY,ticket TEXT NOT NULL,sender TEXT NOT NULL,body TEXT NOT NULL,created BIGINT NOT NULL);
+CREATE INDEX IF NOT EXISTS ticket_messages_ticket_created ON ticket_messages(ticket,created);
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS reports (id TEXT PRIMARY KEY,owner TEXT NOT NULL,target TEXT NOT NULL,reason TEXT NOT NULL,created BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS privacy_preferences (user_id TEXT PRIMARY KEY,notice_version TEXT NOT NULL,accepted_at BIGINT NOT NULL,research_opt_in INTEGER NOT NULL DEFAULT 0,updated_at BIGINT NOT NULL,export_id TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS privacy_events (id TEXT PRIMARY KEY,user_id TEXT NOT NULL,version TEXT NOT NULL,research_opt_in INTEGER NOT NULL,created BIGINT NOT NULL);
+CREATE INDEX IF NOT EXISTS privacy_events_user ON privacy_events(user_id);
+CREATE TABLE IF NOT EXISTS export_audit (id TEXT PRIMARY KEY,admin TEXT NOT NULL,count INTEGER NOT NULL,created BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS credentials (user_id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,salt TEXT NOT NULL,recovery_hash TEXT NOT NULL,created BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,expires BIGINT NOT NULL);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+CREATE TABLE IF NOT EXISTS auth_rate_limits (key TEXT PRIMARY KEY,attempts INTEGER NOT NULL,reset_at BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS admin_chat_audit (id TEXT PRIMARY KEY,admin TEXT NOT NULL,participant_a TEXT NOT NULL,participant_b TEXT NOT NULL,viewed_at BIGINT NOT NULL,message_count INTEGER NOT NULL);
+COMMIT;

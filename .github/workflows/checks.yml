@@ -1,0 +1,36 @@
+name: Checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check browser JavaScript
+        run: |
+          node --check public/ui/app.js
+          node --check public/ui/auth.js
+      - name: Test registration, sessions and recovery
+        run: node tests/auth.cjs
+      - name: Test API and data access
+        run: node tests/api.cjs
+      - name: Test navigation and consent gate
+        run: |
+          node tests/navigation.cjs
+          node tests/auth-ui.cjs
+          node tests/messenger.cjs
+      - name: Check TypeScript
+        run: pnpm exec tsc --noEmit

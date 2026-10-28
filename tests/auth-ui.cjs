@@ -1,0 +1,8 @@
+const vm = require('node:vm'), fs = require('node:fs');
+const nodes = {};
+const node = s => nodes[s] ??= { innerHTML: '', textContent: '', style: {}, hidden: false, focus() { } };
+const ctx = { document: { querySelector: node, addEventListener() { }, documentElement: { dataset: {} } }, window: {}, console, FormData, setInterval() { }, setTimeout() { }, clearTimeout() { }, fetch: async () => ({ ok: false, status: 401, json: async () => ({ error: 'Войди в аккаунт' }) }) };
+vm.createContext(ctx);
+vm.runInContext(fs.readFileSync('public/ui/auth.js', 'utf8'), ctx);
+vm.runInContext(fs.readFileSync('public/ui/app.js', 'utf8').replace(/boot\(\);\s*$/, ''), ctx);
+(async () => { await vm.runInContext(`(async()=>{await boot();if(!$('#app').innerHTML.includes('name="password"')||!$('#app').innerHTML.includes('name="email"')||$('#app').innerHTML.includes('Не удалось подключиться')||$('#app').innerHTML.includes('Войти через ChatGPT'))throw Error('Guest login failed');if(!$('#logout-button').hidden)throw Error('Guest logout visible');renderAuth('register');if(!$('#app').innerHTML.includes('name="acceptNotice" required')||$('#app').innerHTML.includes('name="acceptNotice" required checked'))throw Error('Registration consent default');if($('#app').innerHTML.includes('name="researchConsent"'))throw Error('Research consent bundled with registration');renderAuth('recover');if(!$('#app').innerHTML.includes('name="recoveryCode"'))throw Error('Recovery unavailable');})()`, ctx); console.log('PASS: anonymous boot shows site login, consent defaults, no required ChatGPT, recovery UI'); })().catch(e => { console.error(e); process.exitCode = 1; });

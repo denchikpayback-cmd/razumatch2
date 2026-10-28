@@ -1,0 +1,202 @@
+const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm'), ts = require('typescript'), { DatabaseSync } = require('node:sqlite');
+const sqlite = new DatabaseSync(':memory:');
+for (const f of fs.readdirSync('drizzle').filter(f => f.endsWith('.sql')).sort())
+    sqlite.exec(fs.readFileSync('drizzle/' + f, 'utf8'));
+function prepare(sql, args = []) { return { bind(...a) { return prepare(sql, a); }, async first() { return sqlite.prepare(sql).get(...args) || null; }, async all() { return { results: sqlite.prepare(sql).all(...args) }; }, async run() { sqlite.prepare(sql).run(...args); return { success: true }; } }; }
+const objects = new Map(), DB = { prepare, async batch(stmts) { sqlite.exec('BEGIN'); try {
+        const x = [];
+        for (const s of stmts)
+            x.push(await s.run());
+        sqlite.exec('COMMIT');
+        return x;
+    }
+    catch (e) {
+        sqlite.exec('ROLLBACK');
+        throw e;
+    } } };
+const BUCKET = { async put(id, stream, meta) { objects.set(id, { body: await new Response(stream).arrayBuffer(), meta }); }, async get(id) { let f = objects.get(id); return f ? { body: f.body, size: f.body.byteLength } : null; }, async delete(id) { objects.delete(id); } };
+let current = null;
+let code = ts.transpileModule(fs.readFileSync('app/api/[...path]/route.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+let handler = {};
+const ctx = { exports: handler, require: s => s === 'cloudflare:workers' ? { env: { DB, BUCKET, ADMIN_SETUP_TOKEN: 'test-secret' } } : s.includes('site-auth') ? { getSiteUser: async () => current } : require(s), console, crypto, Request, Response, Headers, File, FormData, URL };
+vm.runInNewContext(code, ctx);
+async function call(user, path, method = 'GET', body, origin) { current = user ? { userId: user, email: user + '@example.test' } : null; const headers = {}; if (origin)
+    headers.origin = origin; let req = new Request('https://test.example/api/' + path, { method, headers, body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined }); let r = await handler[method](req); let data; try {
+    data = await r.json();
+}
+catch {
+    data = null;
+} return { status: r.status, data }; }
+const p = (name, age = 20) => ({ name, age, course: '2 курс', goal: 'Общение', interests: 'Кино, кофе', music: 'джаз', acceptNotice: true, noticeVersion: '2026-10-26-v3', researchConsent: false });
+(async () => {
+    assert.equal((await call(null, 'me')).status, 401);
+    await call('a', 'me');
+    await call('b', 'me');
+    await call('minor', 'me');
+    await call('stranger', 'me');
+    for (const route of ['discover', 'matches', 'messages/b', 'media', 'files/anything'])
+        assert.equal((await call('a', route)).status, 403);
+    assert.equal((await call('a', 'upload', 'POST', new FormData())).status, 403);
+    assert.equal((await call('a', 'privacy/accept', 'POST', { acceptNotice: false, noticeVersion: '2026-10-26-v3' })).status, 400);
+    assert.equal((await call('a', 'privacy/accept', 'POST', { acceptNotice: true, noticeVersion: 'old' })).status, 400);
+    assert.equal((await call('a', 'privacy/accept', 'POST', { acceptNotice: true, noticeVersion: '2026-10-26-v3', researchConsent: true })).data.privacy.researchOptIn, false);
+    assert.equal((await call('a', 'me')).data.privacy.noticeAccepted, true);
+    assert.equal((await call('a', 'discover')).status, 200);
+    assert.equal((await call('a', 'discover')).data.people.length, 0);
+    assert.equal((await call('a', 'privacy/accept', 'POST', { acceptNotice: true, noticeVersion: '2026-10-26-v3' })).status, 200);
+    assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM privacy_events WHERE user_id=?').get('a').n, 1);
+    assert.equal((await call('a', 'profile', 'POST', { ...p('Анна'), acceptNotice: false })).status, 400);
+    assert.equal((await call('a', 'profile', 'POST', p('Анна'))).status, 200);
+    assert.equal((await call('a', 'me')).data.privacy.researchOptIn, false);
+    for (const residence of ['klinskaya', 'orenburgskaya', 'narodnogo', 'none', '']) {
+        const result = await call('a', 'profile', 'POST', { ...p('Анна'), residence });
+        assert.equal(result.status, 200);
+        assert.equal((await call('a', 'me')).data.profile.residence, residence);
+    }
+    assert.equal((await call('a', 'profile', 'POST', { ...p('Анна'), residence: 'unknown' })).status, 400);
+    assert.equal((await call('b', 'profile', 'POST', p('Борис'))).status, 200);
+    await call('minor', 'profile', 'POST', p('Студент', 17));
+    await call('stranger', 'profile', 'POST', p('Чужой'));
+    assert.equal((await call('a', 'profile', 'POST', { ...p('А'), course: '5 курс' })).status, 400);
+    assert.equal((await call('a', 'profile', 'POST', p('А'), 'https://evil.test')).status, 403);
+    const pa = { ...p('Анна'), gender: 'Женский', soughtGender: 'male' }, pb = { ...p('Борис'), gender: 'Мужской', soughtGender: 'female' };
+    await call('a', 'profile', 'POST', pa);
+    await call('b', 'profile', 'POST', pb);
+    assert.equal((await call('stranger', 'profile', 'POST', { ...p('Чужой'), intentions: [] })).status, 400);
+    assert.equal((await call('stranger', 'profile', 'POST', { ...p('Чужой'), intentions: ['bad'] })).status, 400);
+    await call('stranger', 'profile', 'POST', { ...p('Чужой'), intentions: ['friendship'] });
+    assert((await call('a', 'discover?intent=friendship')).data.people.some(x => x.id === 'stranger'));
+    assert(!(await call('a', 'discover?intent=relationship')).data.people.some(x => x.id === 'stranger'));
+    await call('stranger', 'profile', 'POST', { ...p('Чужой'), intentions: ['relationship'] });
+    assert((await call('a', 'discover?intent=relationship')).data.people.some(x => x.id === 'stranger'));
+    assert(!(await call('a', 'discover?intent=friendship')).data.people.some(x => x.id === 'stranger'));
+    await call('stranger', 'profile', 'POST', { ...p('Чужой'), intentions: ['friendship', 'relationship', 'friendship'] });
+    assert.equal((await call('stranger', 'me')).data.profile.intentions.length, 2);
+    assert((await call('a', 'discover?intent=friendship')).data.people.some(x => x.id === 'stranger'));
+    assert((await call('a', 'discover?intent=relationship')).data.people.some(x => x.id === 'stranger'));
+    assert.equal((await call('a', 'discover?intent=bad')).status, 400);
+    // Legacy JSON profiles are classified without a destructive database migration.
+    sqlite.prepare('UPDATE users SET profile=? WHERE id=?').run(JSON.stringify({ ...p('Чужой'), goal: 'Дружба' }), 'stranger');
+    assert((await call('a', 'discover?intent=friendship')).data.people.some(x => x.id === 'stranger'));
+    assert(!(await call('a', 'discover?intent=relationship')).data.people.some(x => x.id === 'stranger'));
+    await call('stranger', 'profile', 'POST', { ...p('Чужой'), gender: 'Женский', soughtGender: 'any' });
+    assert.equal((await call('a', 'profile', 'POST', { ...pa, soughtGender: 'invalid' })).status, 400);
+    let filtered = (await call('a', 'discover')).data.people;
+    assert(filtered.some(x => x.id === 'b'));
+    assert(filtered.some(x => x.id === 'stranger'));
+    assert(!('soughtGender' in filtered[0]));
+    await call('b', 'profile', 'POST', { ...pb, soughtGender: 'male' });
+    assert((await call('a', 'discover')).data.people.some(x => x.id === 'b'));
+    assert.equal((await call('a', 'like', 'POST', { target: 'b', like: true })).status, 200);
+    sqlite.prepare('DELETE FROM likes WHERE sender=? AND recipient=?').run('a', 'b');
+    await call('b', 'profile', 'POST', pb);
+    await call('a', 'profile', 'POST', { ...pa, soughtGender: 'any' });
+    assert((await call('a', 'discover')).data.people.some(x => x.id === 'stranger'));
+    await call('a', 'profile', 'POST', pa);
+    await call('a', 'like', 'POST', { target: 'b', like: false });
+    let skipped = (await call('a', 'discover')).data;
+    assert.equal(skipped.skippedCount, 1);
+    assert(!skipped.people.some(x => x.id === 'b'));
+    assert.equal((await call('a', 'discover/reset', 'POST', {})).status, 200);
+    assert((await call('a', 'discover')).data.people.some(x => x.id === 'b'));
+    await call('a', 'like', 'POST', { target: 'b', like: true });
+    await call('a', 'discover/reset', 'POST', {});
+    assert.equal(sqlite.prepare('SELECT kind FROM likes WHERE sender=? AND recipient=?').get('a', 'b').kind, 'like');
+    assert.equal((await call('b', 'discover')).data.people[0].id, 'a');
+    // Make the existing generic ranking assertions before hiding the outgoing like.
+    await call('a', 'like', 'POST', { target: 'b', like: false });
+    await call('a', 'discover/reset', 'POST', {});
+    let found = (await call('a', 'discover')).data.people;
+    assert(found.some(x => x.id === 'b'));
+    assert(found.find(x => x.id === 'b').reasons.includes('Музыкальные вкусы'));
+    assert.equal((await call('a', 'like', 'POST', { target: 'minor', like: true })).status, 200);
+    sqlite.prepare('DELETE FROM likes WHERE sender=? AND recipient=?').run('a', 'minor');
+    assert.equal((await call('a', 'messages/b')).status, 403);
+    assert.equal((await call('a', 'like', 'POST', { target: 'b', like: true })).data.match, false);
+    assert.equal((await call('b', 'like', 'POST', { target: 'a', like: true })).data.match, true);
+    assert.equal((await call('a', 'matches')).data.matches.length, 1);
+    const form = new FormData();
+    form.append('file', new File(['hello'], 'test.png', { type: 'image/png' }));
+    form.append('scope', 'chat');
+    let uploaded = await call('a', 'upload', 'POST', form);
+    assert.equal(uploaded.status, 200);
+    const file = uploaded.data.file;
+    assert.equal((await call('b', 'files/' + file.id)).status, 403);
+    assert.equal((await call('a', 'messages/b', 'POST', { text: 'Привет <script>', attachments: [file.id] })).status, 200);
+    assert.equal((await call('b', 'messages/a')).data.messages[0].attachments[0].mime, 'image/png');
+    assert.equal((await call('stranger', 'messages/a')).status, 403);
+    assert.equal((await call('stranger', 'files/' + file.id)).status, 403);
+    assert.equal((await call('b', 'files/' + file.id)).status, 200);
+    assert.equal((await call('b', 'files/' + file.id, 'DELETE')).status, 403);
+    await call('b', 'profile', 'POST', { ...pb, soughtGender: 'male' });
+    assert.equal((await call('a', 'messages/b')).status, 200);
+    assert.equal((await call('a', 'matches')).data.matches.length, 1);
+    await call('b', 'profile', 'POST', pb);
+    assert.equal((await call('a', 'admin/claim', 'POST', { token: 'wrong' })).status, 403);
+    assert.equal((await call('a', 'admin/claim', 'POST', { token: 'test-secret' })).data.ok, true);
+    assert.equal((await call('b', 'admin/claim', 'POST', { token: 'test-secret' })).status, 409);
+    assert.equal((await call('b', 'admin/overview')).status, 403);
+    assert.equal((await call('b', 'admin/project', 'POST', { operatorName: 'Чужой', contact: 'test@example.org' })).status, 403);
+    assert.equal((await call('a', 'admin/project', 'POST', { operatorName: 'Ответственный за проект', contact: 'help@example.org' })).status, 200);
+    assert.equal((await call(null, 'project')).data.contact, 'help@example.org');
+    assert.equal((await call('b', 'admin/research-export', 'POST', {})).status, 403);
+    assert.equal((await call('a', 'admin/research-export', 'POST', {})).data.records.length, 0);
+    await call('b', 'profile', 'POST', { ...p('Борис'), researchConsent: true, residence: 'klinskaya', surname: 'Секрет', group: 'Секрет' });
+    await call('minor', 'profile', 'POST', { ...p('Студент', 17), researchConsent: true });
+    assert.equal((await call('minor', 'me')).data.privacy.researchOptIn, false);
+    let exported = (await call('a', 'admin/research-export', 'POST', {})).data;
+    assert.equal(exported.records.length, 1);
+    assert.equal(exported.records[0].music, 'джаз');
+    for (const key of ['name', 'surname', 'group', 'residence', 'email', 'messages', 'media', 'age', 'soughtGender'])
+        assert(!(key in exported.records[0]));
+    assert.notEqual(exported.records[0].participant, 'b');
+    await call('b', 'privacy', 'POST', { researchConsent: false });
+    assert.equal((await call('a', 'admin/research-export', 'POST', {})).data.records.length, 0);
+    assert(sqlite.prepare('SELECT COUNT(*) AS n FROM export_audit').get().n >= 3);
+    await call('b', 'profile', 'POST', { ...p('Борис'), showDemo: true });
+    assert(!(await call('b', 'discover')).data.people.some(x => x.id.startsWith('demo-')));
+    assert(!('showDemo' in (await call('b', 'me')).data.profile));
+    let ticket = (await call('b', 'tickets', 'POST', { subject: 'Ошибка', text: 'Кнопка не работает' })).data.id;
+    assert(ticket);
+    assert.equal((await call('stranger', 'tickets/' + ticket)).status, 403);
+    assert.equal((await call('a', 'tickets')).data.tickets.length, 1);
+    assert.equal((await call('a', 'tickets/' + ticket, 'POST', { text: 'Проверяем' })).status, 200);
+    assert.equal((await call('b', 'tickets/' + ticket)).data.messages.length, 2);
+    await call('a', 'block', 'POST', { target: 'b', reason: 'Спам' });
+    assert.equal((await call('a', 'messages/b')).status, 403);
+    assert.equal((await call('b', 'messages/a')).status, 403);
+    assert.equal((await call('b', 'files/' + file.id)).status, 403);
+    assert.equal((await call('a', 'admin/overview')).data.reports.length, 1);
+    assert.equal((await call('b', 'account', 'DELETE')).status, 200);
+    assert(!sqlite.prepare('SELECT 1 FROM users WHERE id=?').get('b'));
+    assert(!sqlite.prepare('SELECT 1 FROM privacy_preferences WHERE user_id=?').get('b'));
+    assert(!sqlite.prepare('SELECT 1 FROM privacy_events WHERE user_id=?').get('b'));
+    assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM messages').get().n, 0);
+    await call('younger', 'me');
+    await call('older', 'me');
+    await call('younger', 'profile', 'POST', p('Участник 17', 17));
+    await call('older', 'profile', 'POST', p('Участник 18', 18));
+    assert((await call('younger', 'discover')).data.people.some(x => x.id === 'older'));
+    assert((await call('older', 'discover')).data.people.some(x => x.id === 'younger'));
+    assert.equal((await call('older', 'messages/younger')).status, 403);
+    const profileMedia = new FormData();
+    profileMedia.append('file', new File(['profile'], 'profile.png', { type: 'image/png' }));
+    const profileUpload = await call('younger', 'upload', 'POST', profileMedia);
+    assert.equal(profileUpload.status, 200);
+    assert.equal((await call('older', 'files/' + profileUpload.data.file.id)).status, 200);
+    assert.equal((await call('younger', 'like', 'POST', { target: 'older', like: true })).data.match, false);
+    assert.equal((await call('older', 'like', 'POST', { target: 'younger', like: true })).data.match, true);
+    assert.equal((await call('older', 'messages/younger', 'POST', { text: 'Привет!' })).status, 200);
+    assert.equal((await call('younger', 'messages/older')).data.messages[0].body, 'Привет!');
+    assert((await call('older', 'matches')).data.matches.some(x => x.id === 'younger'));
+    // Previous notice acceptance cannot silently expand profile visibility.
+    sqlite.prepare('UPDATE privacy_preferences SET notice_version=? WHERE user_id=?').run('2026-10-26-v2', 'younger');
+    assert.equal((await call('younger', 'discover')).status, 403);
+    assert.equal((await call('older', 'files/' + profileUpload.data.file.id)).status, 403);
+    assert.equal((await call('younger', 'privacy/accept', 'POST', { acceptNotice: true, noticeVersion: '2026-10-26-v3' })).status, 200);
+    assert.equal((await call('older', 'messages/younger')).status, 200);
+    await call('older', 'block', 'POST', { target: 'younger' });
+    assert.equal((await call('younger', 'messages/older')).status, 403);
+    assert.equal((await call('older', 'files/' + profileUpload.data.file.id)).status, 403);
+    console.log('PASS: auth, profiles, course validation, CSRF, ranking, shared discovery across 18, updated notice gate, mutual matches, messaging, uploads, file privacy, admin claim, tickets, blocking, account deletion');
+})().catch(e => { console.error(e); process.exitCode = 1; });
