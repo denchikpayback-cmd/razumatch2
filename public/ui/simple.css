@@ -26,3 +26,19 @@ html[data-theme=dark]{--bg:#19211c;--surface:#222c25;--ink:#e0e7df;--muted:#98a4
 @media(min-width:701px){.simple-stage{padding-top:10px}.swipe-card{box-shadow:0 14px 42px #263d2810}.swipe-card:hover{box-shadow:0 18px 48px #263d2818}.swipe-guide{margin-top:23px}}
 @media(max-width:700px){.simple-stage{max-width:440px;padding-top:0}.swipe-card{border-radius:22px}.swipe-stamp{top:16px;left:15px;font-size:10px}.swipe-stamp.skip-stamp{right:15px;left:auto}.swipe-guide{gap:22px;margin-top:19px;font-size:11px}.swipe-guide kbd{min-width:27px;height:27px;border-radius:8px}.discovery-hint{max-width:310px;margin:8px auto 0;font-size:10px}}
 @media(prefers-reduced-motion:reduce){.swipe-card,.swipe-stamp{transition:none!important}.swipe-card.is-leaving-right,.swipe-card.is-leaving-left{animation-duration:.01ms}}
+
+
+/* Laptop-friendly swipe controls. */
+.laptop-swipe-actions{display:flex;justify-content:center;align-items:center;gap:14px;width:100%;margin:18px auto 0}
+.laptop-swipe-button{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:14px;min-height:58px;min-width:0;flex:1;max-width:230px;padding:10px 15px;display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer;font:650 14px/1.3 inherit;box-shadow:0 4px 16px #16291c0d;transition:transform .15s,background .15s,border-color .15s}
+.laptop-swipe-button:hover{transform:translateY(-2px);border-color:var(--accent)}
+.laptop-swipe-button:active{transform:translateY(1px)}
+.laptop-swipe-button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.laptop-skip .laptop-action-icon{color:#bd7272}
+.laptop-like{background:var(--accent-soft);border-color:var(--accent)}
+.laptop-like .laptop-action-icon{color:var(--accent)}
+.laptop-action-icon{font-size:24px;line-height:1}
+.laptop-swipe-button kbd{margin-left:auto;min-width:24px;padding:4px 5px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:var(--surface);font-family:inherit}
+.simple-stage .discovery-hint{display:block;margin-top:10px}
+@media (hover:hover) and (pointer:fine){.swipe-card{cursor:grab}.swipe-card.is-dragging,.swipe-card.is-dragging .profile-photo{cursor:grabbing}}
+@media(max-width:480px){.laptop-swipe-actions{gap:9px}.laptop-swipe-button{min-height:54px;padding:8px 10px;font-size:12px}.laptop-swipe-button kbd{display:none}}
