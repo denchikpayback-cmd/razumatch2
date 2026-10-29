@@ -1,5 +1,6 @@
 const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 let discoveryState = { skippedCount: 0, sentLikesCount: 0 };
+let swipeBusy = false;
 let me = null, view = 'discover', people = [], matchList = [], activeChat = null, activeTicket = null, drafts = [], uploadBusy = false, loading = false, albumTab = 'all', requestVersion = 0, lastMessages = '';
 const iconPaths = { discover: '<path d="m12 3 2.8 6.2L21 12l-6.2 2.8L12 21l-2.8-6.2L3 12l6.2-2.8Z"/>', messages: '<path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5a9.5 9.5 0 0 1 19 0Z"/><path d="M7 9h9M7 13h6"/>', profile: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>', support: '<path d="M4 14v-3a8 8 0 0 1 16 0v3M4 12H2v6h4v-6Zm16 0h2v6h-4v-6ZM20 18c0 3-3 4-6 4"/>', clip: '<path d="m8 13 7-7a3 3 0 0 1 4 4l-9 9a5 5 0 0 1-7-7L13 2"/>', send: '<path d="m3 11 18-8-8 18-2-8-8-2Zm8 2L21 3"/>', back: '<path d="m14 5-7 7 7 7M7 12h14"/>', plus: '<path d="M12 5v14M5 12h14"/>', heart: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/>', close: '<path d="m6 6 12 12M6 18 18 6"/>', image: '<rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8" cy="8" r="1"/><path d="m3 17 5-5 4 4 4-6 5 7"/>', file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Zm0 0v6h6M8 13h8M8 17h5"/>', search: '<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>', more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>' };
 function icon(name) { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${iconPaths[name] || iconPaths.plus}</svg>`; }
@@ -135,7 +136,54 @@ function registrationNotice() { return `<section class="registration-notice" rol
 function renderDiscover() { const p = people[0]; if (!p) {
     $('#app').innerHTML = discoveryTabs() + empty('Здесь скоро будут свои люди', `<div class="empty-art">${icon('discover')}</div><p>Новые анкеты появятся здесь автоматически.</p><div class="discovery-empty-actions"><button class="primary" onclick="go('discover')">Обновить</button>${discoveryState.skippedCount ? '<button class="secondary" onclick="resetSkipped()">Посмотреть пропущенные</button>' : ''}</div>${discoveryState.sentLikesCount ? `<p class="smallmuted">Симпатий отправлено: ${discoveryState.sentLikesCount}</p>` : ''}`);
     return;
-} const photo = p.media?.find(f => f.mime.startsWith('image/')); $('#app').innerHTML = discoveryTabs() + `<section class="stage simple-stage"><article class="card"><button class="profile-photo" onclick="showPerson()" aria-label="Открыть анкету ${esc(p.name)}">${photo ? `<img src="${photo.url}" alt="${esc(p.name)}">` : `<div class="photo-placeholder">${esc(p.name[0])}</div>`}<span class="photo-caption">${esc(p.faculty || 'МГУТУ')} · ${esc(p.course)}</span></button><div class="cardbody"><div class="personhead"><h2>${esc(p.name)}<span class="person-age">, ${p.age}</span></h2><button class="icon-button" onclick="report('${p.id}')" aria-label="Пожаловаться">${icon('more')}</button></div>${intentionBadges(p)}${p.bio ? `<p class="bio">${esc(p.bio)}</p>` : ''}<div class="tags">${(p.interests || '').split(',').filter(Boolean).slice(0, 5).map(t => `<span>${esc(t.trim())}</span>`).join('')}</div><button class="text-button" onclick="showPerson()">Об анкете ↗</button></div></article><div class="actions"><button class="skip" onclick="like(false)" aria-label="Пропустить">${icon('close')}<span>Пропустить</span></button><button class="like" onclick="like(true)">${icon('heart')}<span>Нравится</span></button></div><p class="discovery-hint">Хороший разговор начинается с одного «привет».</p></section>`; }
+} const photo = p.media?.find(f => f.mime.startsWith('image/')); $('#app').innerHTML = discoveryTabs() + `<section class="stage simple-stage"><article class="card swipe-card" aria-label="Карточка анкеты: свайп вправо — нравится, влево — пропустить"><span class="swipe-stamp like-stamp" aria-hidden="true">НРАВИТСЯ</span><span class="swipe-stamp skip-stamp" aria-hidden="true">ПРОПУСК</span><button class="profile-photo" onclick="showPerson()" aria-label="Открыть анкету ${esc(p.name)}">${photo ? `<img src="${photo.url}" alt="${esc(p.name)}">` : `<div class="photo-placeholder">${esc(p.name[0])}</div>`}<span class="photo-caption">${esc(p.faculty || 'МГУТУ')} · ${esc(p.course)}</span></button><div class="cardbody"><div class="personhead"><h2>${esc(p.name)}<span class="person-age">, ${p.age}</span></h2><button class="icon-button" onclick="report('${p.id}')" aria-label="Пожаловаться">${icon('more')}</button></div>${intentionBadges(p)}${p.bio ? `<p class="bio">${esc(p.bio)}</p>` : ''}<div class="tags">${(p.interests || '').split(',').filter(Boolean).slice(0, 5).map(t => `<span>${esc(t.trim())}</span>`).join('')}</div><button class="text-button" onclick="showPerson()">Об анкете ↗</button></div></article><div class="swipe-guide" aria-label="Управление карточкой"><span><kbd>←</kbd> Пропустить</span><span><kbd>→</kbd> Нравится</span></div><p class="discovery-hint">Проведи карточку влево или вправо. На компьютере работают клавиши ← и →.</p></section>`; const card = $('.swipe-card'); if (card) bindSwipeCard(card); }
+function bindSwipeCard(card) {
+    let startX = 0, startY = 0, dx = 0, dy = 0, dragging = false, dragged = false, pointerId = null, suppressClick = false;
+    card.addEventListener('pointerdown', e => {
+        if (swipeBusy || loading || e.target.closest('.icon-button, a, input, textarea, select, video, button:not(.profile-photo)')) return;
+        pointerId = e.pointerId; startX = e.clientX; startY = e.clientY; dx = 0; dy = 0; dragging = true; dragged = false;
+        card.classList.add('is-dragging');
+    });
+    card.addEventListener('pointermove', e => {
+        if (!dragging || e.pointerId !== pointerId) return;
+        dx = e.clientX - startX; dy = e.clientY - startY;
+        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8) {
+            dragged = true; suppressClick = true;
+            card.style.transform = 'translate3d(' + dx + 'px,' + (dy * 0.12) + 'px,0) rotate(' + (dx / 20) + 'deg)';
+            card.classList.toggle('swipe-like-active', dx > 0);
+            card.classList.toggle('swipe-skip-active', dx < 0);
+            if (e.cancelable) e.preventDefault();
+        }
+    });
+    card.addEventListener('pointerup', e => {
+        if (!dragging || e.pointerId !== pointerId) return;
+        dragging = false; card.classList.remove('is-dragging');
+        if (dragged && Math.abs(dx) >= 95 && Math.abs(dx) > Math.abs(dy)) {
+            card.style.transform = ''; decideSwipe(dx > 0);
+        } else {
+            card.style.transform = ''; card.classList.remove('swipe-like-active', 'swipe-skip-active');
+        }
+        if (suppressClick) setTimeout(() => { suppressClick = false; }, 450);
+    });
+    const cancel = e => { if (!dragging || (pointerId !== null && e.pointerId !== pointerId)) return; dragging = false; card.classList.remove('is-dragging', 'swipe-like-active', 'swipe-skip-active'); card.style.transform = ''; };
+    card.addEventListener('pointercancel', cancel);
+    card.addEventListener('click', e => { if (suppressClick) { e.preventDefault(); e.stopPropagation(); suppressClick = false; } }, true);
+}
+async function decideSwipe(yes) {
+    if (swipeBusy || loading || !people.length) return;
+    const card = $('.swipe-card'); if (!card) return;
+    swipeBusy = true; card.style.transform = '';
+    card.classList.add(yes ? 'is-leaving-right' : 'is-leaving-left');
+    await new Promise(resolve => setTimeout(resolve, 230));
+    swipeBusy = false;
+    await like(yes);
+}
+document.addEventListener('keydown', e => {
+    if (view !== 'discover' || swipeBusy || loading || $('#modal').innerHTML || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); decideSwipe(e.key === 'ArrowRight'); }
+});
+
 async function resetSkipped() { if (loading)
     return; loading = true; try {
     await api('discover/reset', 'POST', {});
@@ -180,6 +228,7 @@ async function like(yes) { if (loading || !people.length)
 }
 catch (e) {
     toast(e.message);
+    renderDiscover();
 }
 finally {
     loading = false;
