@@ -10,7 +10,7 @@ function profile(p: any) { const age = Number(p.age); if (!Number.isInteger(age)
     throw new Error('Укажи возраст от 16 до 99 лет'); const name = cut(p.name, 40); if (!name)
     throw new Error('Укажи имя'); const course = cut(p.course, 30); if (!['1 курс', '2 курс', '3 курс', '4 курс', 'Магистратура', 'Аспирантура', 'Выпускник'].includes(course))
     throw new Error('Выбери курс'); let out: any = { name, age, course }; for (const k of ['surname', 'group', 'faculty', 'bio', 'interests', 'goal', 'gender', 'music', 'films', 'books', 'hobbies', 'weekend', 'communication', 'values', 'lookingFor', 'city'])
-    out[k] = cut(p[k], k === 'bio' ? 500 : 180); const residence = cut(p.residence, 30); if (!['', 'klinskaya', 'orenburgskaya', 'narodnogo', 'none'].includes(residence))
+    out[k] = cut(p[k], k === 'bio' ? 500 : 180); if (!['Мужской', 'Женский'].includes(out.gender)) throw new Error('Укажи пол: мужской или женский'); const residence = cut(p.residence, 30); if (!['', 'klinskaya', 'orenburgskaya', 'narodnogo', 'none'].includes(residence))
     throw new Error('Выбери место проживания из списка'); out.residence = residence; const soughtGender = cut(p.soughtGender, 10) || 'any'; if (!['any', 'male', 'female'].includes(soughtGender))
     throw new Error('Выбери, кого ищешь'); out.soughtGender = soughtGender; if (p.intentions !== undefined && (!Array.isArray(p.intentions) || !p.intentions.length || p.intentions.some((x: any) => !['friendship', 'relationship'].includes(x))))
     throw new Error('Выбери дружбу, отношения или оба варианта'); out.intentions = intentions(p); out.goal = out.intentions.length === 2 ? 'Дружба и отношения' : out.intentions[0] === 'friendship' ? 'Дружба' : 'Отношения'; return out; }
@@ -109,6 +109,8 @@ async function handle(r: Request) {
             if (body.acceptNotice !== true || body.noticeVersion !== NOTICE_VERSION)
                 return json({ error: 'Ознакомься с уведомлением об использовании данных и подтверди согласие' }, 400);
             let p = profile(body);
+            if (!await one("SELECT 1 FROM uploads WHERE owner=? AND scope='profile' AND mime LIKE 'image/%' LIMIT 1", me))
+                return json({ error: 'Для сохранения анкеты добавь хотя бы одно фото' }, 400);
             const optIn = body.researchConsent === true && p.age >= 18 ? 1 : 0, now = Date.now();
             const exportId = privacy && privacy.research_opt_in === optIn ? privacy.export_id : uid();
             await db.batch([q('UPDATE users SET profile=?,completed=1 WHERE id=?', JSON.stringify(p), me), q('INSERT INTO privacy_preferences(user_id,notice_version,accepted_at,research_opt_in,updated_at,export_id) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET notice_version=excluded.notice_version,accepted_at=excluded.accepted_at,research_opt_in=excluded.research_opt_in,updated_at=excluded.updated_at,export_id=excluded.export_id', me, NOTICE_VERSION, noticeAccepted ? privacy.accepted_at : now, optIn, now, exportId), q('INSERT INTO privacy_events(id,user_id,version,research_opt_in,created) VALUES(?,?,?,?,?)', uid(), me, NOTICE_VERSION, optIn, now)]);
@@ -154,19 +156,27 @@ async function handle(r: Request) {
             return json({ ok: true });
         }
         if (path[0] === 'discover' && method === 'GET') {
+            if (!['Мужской', 'Женский'].includes(myProfile.gender) || !await one("SELECT 1 FROM uploads WHERE owner=? AND scope='profile' AND mime LIKE 'image/%' LIMIT 1", me))
+                return json({ error: 'Чтобы искать людей, укажи пол и добавь фото в своём профиле', code: 'PROFILE_INCOMPLETE' }, 403);
             if (!mine.completed)
                 return json({ people: [], skippedCount: 0, sentLikesCount: 0 });
             const intent = new URL(r.url).searchParams.get('intent') || 'all';
             if (!['all', 'friendship', 'relationship'].includes(intent))
                 return json({ error: 'Неизвестный раздел' }, 400);
+            const gender = new URL(r.url).searchParams.get('gender') || 'all';
+            if (!['all', 'male', 'female'].includes(gender))
+                return json({ error: 'Неизвестный фильтр по полу' }, 400);
             const rows = await all(`SELECT u.id,u.profile FROM users u
    WHERE u.completed=1 AND u.id<>?
+   AND (u.profile::jsonb->>'gender') IN ('Мужской','Женский')
+   AND (?='all' OR u.profile::jsonb->>'gender'=CASE WHEN ?='male' THEN 'Мужской' ELSE 'Женский' END)
+   AND EXISTS(SELECT 1 FROM uploads photo WHERE photo.owner=u.id AND photo.scope='profile' AND photo.mime LIKE 'image/%')
    AND EXISTS(SELECT 1 FROM privacy_preferences pp WHERE pp.user_id=u.id AND pp.notice_version=?)
    AND NOT EXISTS(SELECT 1 FROM likes WHERE sender=? AND recipient=u.id)
    AND NOT EXISTS(SELECT 1 FROM blocks WHERE (owner=? AND target=u.id) OR (target=? AND owner=u.id))
    AND (?='all' OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE((u.profile::jsonb)->'intentions', CASE u.profile::jsonb->>'goal' WHEN 'Дружба' THEN '["friendship"]'::jsonb WHEN 'Отношения' THEN '["relationship"]'::jsonb WHEN 'Свидания' THEN '["relationship"]'::jsonb ELSE '["friendship","relationship"]'::jsonb END)) AS intent_value(value) WHERE intent_value.value=?))
    ORDER BY EXISTS(SELECT 1 FROM likes incoming WHERE incoming.sender=u.id AND incoming.recipient=? AND incoming.kind='like') DESC,u.created DESC,u.id
-   LIMIT 200`, me, NOTICE_VERSION, me, me, me, intent, intent, me);
+   LIMIT 200`, me, gender, gender, NOTICE_VERSION, me, me, me, intent, intent, me);
             let people = [];
             for (const row of rows)
                 people.push(await publicUser(row));
@@ -178,8 +188,10 @@ async function handle(r: Request) {
             return json({ people, skippedCount: counts?.skipped || 0, sentLikesCount: counts?.sent || 0 });
         }
         if (path[0] === 'like' && method === 'POST') {
+            if (!['Мужской', 'Женский'].includes(myProfile.gender) || !await one("SELECT 1 FROM uploads WHERE owner=? AND scope='profile' AND mime LIKE 'image/%' LIMIT 1", me))
+                return json({ error: 'Сначала укажи пол и добавь фото в профиле' }, 403);
             let b = await getBody(), target = cut(b.target, 100), kind = b.like ? 'like' : 'pass';
-            if (!await allowed(me, target))
+            if (!await allowed(me, target) || !await one("SELECT 1 FROM uploads WHERE owner=? AND scope='profile' AND mime LIKE 'image/%' LIMIT 1", target))
                 return json({ error: 'Анкета недоступна' }, 403);
             await q('INSERT INTO likes(sender,recipient,kind,created) VALUES(?,?,?,?) ON CONFLICT(sender,recipient) DO UPDATE SET kind=excluded.kind', me, target, kind, Date.now()).run();
             return json({ match: kind === 'like' && await matched(target) });
