@@ -136,13 +136,12 @@ function registrationNotice() { return `<section class="registration-notice" rol
 function renderDiscover() { const p = people[0]; if (!p) {
     $('#app').innerHTML = discoveryTabs() + empty('Здесь скоро будут свои люди', `<div class="empty-art">${icon('discover')}</div><p>Новые анкеты появятся здесь автоматически.</p><div class="discovery-empty-actions"><button class="primary" onclick="go('discover')">Обновить</button>${discoveryState.skippedCount ? '<button class="secondary" onclick="resetSkipped()">Посмотреть пропущенные</button>' : ''}</div>${discoveryState.sentLikesCount ? `<p class="smallmuted">Симпатий отправлено: ${discoveryState.sentLikesCount}</p>` : ''}`);
     return;
-} const photo = p.media?.find(f => f.mime.startsWith('image/')); $('#app').innerHTML = discoveryTabs() + `<section class="stage simple-stage"><article class="card swipe-card" aria-label="Карточка анкеты: свайп вправо — нравится, влево — пропустить"><span class="swipe-stamp like-stamp" aria-hidden="true">НРАВИТСЯ</span><span class="swipe-stamp skip-stamp" aria-hidden="true">ПРОПУСК</span><button class="profile-photo" onclick="showPerson()" aria-label="Открыть анкету ${esc(p.name)}">${photo ? `<img src="${photo.url}" alt="${esc(p.name)}">` : `<div class="photo-placeholder">${esc(p.name[0])}</div>`}<span class="photo-caption">${esc(p.faculty || 'МГУТУ')} · ${esc(p.course)}</span></button><div class="cardbody"><div class="personhead"><h2>${esc(p.name)}<span class="person-age">, ${p.age}</span></h2><button class="icon-button" onclick="report('${p.id}')" aria-label="Пожаловаться">${icon('more')}</button></div>${intentionBadges(p)}${p.bio ? `<p class="bio">${esc(p.bio)}</p>` : ''}<div class="tags">${(p.interests || '').split(',').filter(Boolean).slice(0, 5).map(t => `<span>${esc(t.trim())}</span>`).join('')}</div><button class="text-button" onclick="showPerson()">Об анкете ↗</button></div></article><div class="laptop-swipe-actions" aria-label="Оценить анкету"><button type="button" class="laptop-swipe-button laptop-skip" onclick="decideSwipe(false)" aria-label="Пропустить анкету"><span class="laptop-action-icon">✕</span><span>Пропустить</span><kbd>←</kbd></button><button type="button" class="laptop-swipe-button laptop-like" onclick="decideSwipe(true)" aria-label="Нравится анкета"><span class="laptop-action-icon">♥</span><span>Нравится</span><kbd>→</kbd></button></div><p class="discovery-hint">Перетащи карточку мышью или тачпадом · либо используй стрелки клавиатуры.</p></section>`; const card = $('.swipe-card'); if (card) bindSwipeCard(card); }
+} const photo = p.media?.find(f => f.mime.startsWith('image/')); $('#app').innerHTML = discoveryTabs() + `<section class="stage simple-stage"><article class="card swipe-card" aria-label="Карточка анкеты. Используй кнопки под ней или стрелки клавиатуры"><span class="swipe-stamp like-stamp" aria-hidden="true">НРАВИТСЯ</span><span class="swipe-stamp skip-stamp" aria-hidden="true">ПРОПУСК</span><button class="profile-photo" onclick="showPerson()" aria-label="Открыть анкету ${esc(p.name)}">${photo ? `<img src="${photo.url}" alt="${esc(p.name)}">` : `<div class="photo-placeholder">${esc(p.name[0])}</div>`}<span class="photo-caption">${esc(p.faculty || 'МГУТУ')} · ${esc(p.course)}</span></button><div class="cardbody"><div class="personhead"><h2>${esc(p.name)}<span class="person-age">, ${p.age}</span></h2><button class="icon-button" onclick="report('${p.id}')" aria-label="Пожаловаться">${icon('more')}</button></div>${intentionBadges(p)}${p.bio ? `<p class="bio">${esc(p.bio)}</p>` : ''}<div class="tags">${(p.interests || '').split(',').filter(Boolean).slice(0, 5).map(t => `<span>${esc(t.trim())}</span>`).join('')}</div><button class="text-button" onclick="showPerson()">Об анкете ↗</button></div></article><div class="laptop-swipe-actions" aria-label="Оценить анкету"><button type="button" class="laptop-swipe-button laptop-skip" onclick="decideSwipe(false)" aria-label="Пропустить анкету"><span class="laptop-action-icon">✕</span><span>Пропустить</span><kbd>←</kbd></button><button type="button" class="laptop-swipe-button laptop-like" onclick="decideSwipe(true)" aria-label="Нравится анкета"><span class="laptop-action-icon">♥</span><span>Нравится</span><kbd>→</kbd></button></div><p class="discovery-hint">Нажми кнопку под анкетой или используй клавиши ← и →.</p></section>`; const card = $('.swipe-card'); if (card) bindSwipeCard(card); }
 function bindSwipeCard(card) {
     let startX = 0, startY = 0, dx = 0, dy = 0, dragging = false, dragged = false, pointerId = null, suppressClick = false;
     card.addEventListener('pointerdown', e => {
-        if (swipeBusy || loading || (e.pointerType === 'mouse' && e.button !== 0) || e.target.closest('.icon-button, a, input, textarea, select, video, button:not(.profile-photo)')) return;
+        if (swipeBusy || loading || e.pointerType === 'mouse' || e.target.closest('.icon-button, a, input, textarea, select, video, button:not(.profile-photo)')) return;
         pointerId = e.pointerId; startX = e.clientX; startY = e.clientY; dx = 0; dy = 0; dragging = true; dragged = false;
-        if (e.pointerType === 'mouse') { try { card.setPointerCapture(e.pointerId); } catch {} }
         card.classList.add('is-dragging');
     });
     card.addEventListener('pointermove', e => {
@@ -174,11 +173,14 @@ function bindSwipeCard(card) {
 async function decideSwipe(yes) {
     if (swipeBusy || loading || !people.length || view !== 'discover' || $('#modal').innerHTML) return;
     const card = $('.swipe-card'); if (!card) return;
-    swipeBusy = true; card.style.transform = '';
-    card.classList.add(yes ? 'is-leaving-right' : 'is-leaving-left');
-    await new Promise(resolve => setTimeout(resolve, 230));
-    swipeBusy = false;
-    await like(yes);
+    swipeBusy = true;
+    card.classList.add('is-changing');
+    try {
+        await new Promise(resolve => setTimeout(resolve, 115));
+        await like(yes);
+    } finally {
+        swipeBusy = false;
+    }
 }
 document.addEventListener('keydown', e => {
     if (view !== 'discover' || swipeBusy || loading || $('#modal').innerHTML || e.altKey || e.ctrlKey || e.metaKey) return;
