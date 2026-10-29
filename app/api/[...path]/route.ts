@@ -50,8 +50,25 @@ async function handle(r: Request) {
         const me = user.userId;
         if (method !== 'GET') {
             const origin = r.headers.get('origin');
-            if (origin && origin !== new URL(r.url).origin)
-                return json({ error: 'Недопустимый источник запроса' }, 403);
+            if (origin) {
+                const requestUrl = new URL(r.url);
+                let allowedOrigin = origin === requestUrl.origin;
+                if (!allowedOrigin && process.env.NODE_ENV !== 'production') {
+                    try {
+                        const source = new URL(origin);
+                        const localHosts = ['localhost', '127.0.0.1'];
+                        allowedOrigin =
+                            localHosts.includes(source.hostname) &&
+                            localHosts.includes(requestUrl.hostname) &&
+                            source.port === requestUrl.port &&
+                            source.protocol === requestUrl.protocol;
+                    } catch {
+                        allowedOrigin = false;
+                    }
+                }
+                if (!allowedOrigin)
+                    return json({ error: 'Недопустимый источник запроса' }, 403);
+            }
         }
         const q = (sql: string, ...args: any[]) => db.prepare(sql).bind(...args);
         const one = async (sql: string, ...args: any[]) => q(sql, ...args).first();
