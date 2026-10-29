@@ -49,3 +49,10 @@ html[data-theme=dark]{--bg:#19211c;--surface:#222c25;--ink:#e0e7df;--muted:#98a4
 .simple-stage .swipe-card.is-leaving-right,.simple-stage .swipe-card.is-leaving-left{animation:none;transform:none;opacity:.45}
 @media(hover:hover) and (pointer:fine){.simple-stage .swipe-card,.simple-stage .swipe-card .profile-photo{cursor:default;touch-action:auto}.simple-stage .swipe-card{user-select:text;-webkit-user-select:text}}
 @media(max-width:700px){.simple-stage .swipe-card{user-select:none;-webkit-user-select:none}}
+
+
+/* Profile discovery filters */
+.discovery-filter-label{margin:14px 2px 7px;font-size:12px;font-weight:700;color:var(--muted)}
+.discovery-genders{margin-bottom:4px}
+.discovery-genders button{min-height:38px}
+@media(max-width:700px){.discovery-filter-label{margin-top:10px}.discovery-genders button{min-height:42px}}
