@@ -284,7 +284,7 @@ catch (e) {
     toast(e.message);
 } }
 function renderMatches() { matchList.sort((a, b) => (b.last?.created || 0) - (a.last?.created || 0)); $('#app').innerHTML = heading('Сообщения') + `<div class="messenger-layout"><section class="conversation-list"><div class="conversation-title">Чаты <span>${matchList.length}</span></div><label class="chat-search">${icon('search')}<input id="chat-search" placeholder="Поиск по чатам" aria-label="Поиск по чатам" value="${esc(chatSearch)}" oninput="chatSearch=this.value;renderConversationList()"></label><div id="conversation-rows"></div></section><section class="chat-placeholder">${icon('messages')}<h2>Твои разговоры — здесь</h2><p>Выбери чат и скажи «привет».</p></section></div>`; renderConversationList(); }
-async function openChat(id) { if (id === activeChat)
+async function openChat(id) { if (id === activeChat && $('#message'))
     return; if (loading)
     return toast('Дождись отправки сообщения'); if (uploadBusy)
     return toast('Дождись загрузки файлов'); if (activeChat && $('#message'))
@@ -310,6 +310,9 @@ async function loadMessages() { const id = activeChat; if (!id)
         root.scrollTop = root.scrollHeight;
 }
 catch (e) {
+    if (id === activeChat && $('#bubbles') && !lastMessages) {
+        $('#bubbles').innerHTML = '<div class="chat-start"><b>Не удалось загрузить переписку</b><p>' + esc(e.message) + '</p><button type="button" class="secondary" onclick="loadMessages()">Повторить</button></div>';
+    }
     toast(e.message);
 } }
 async function clearDrafts() { const ids = drafts.map(f => f.id); drafts = []; await Promise.allSettled(ids.map(id => api('files/' + id, 'DELETE'))); }
