@@ -42,3 +42,10 @@ html[data-theme=dark]{--bg:#19211c;--surface:#222c25;--ink:#e0e7df;--muted:#98a4
 .simple-stage .discovery-hint{display:block;margin-top:10px}
 @media (hover:hover) and (pointer:fine){.swipe-card{cursor:grab}.swipe-card.is-dragging,.swipe-card.is-dragging .profile-photo{cursor:grabbing}}
 @media(max-width:480px){.laptop-swipe-actions{gap:9px}.laptop-swipe-button{min-height:54px;padding:8px 10px;font-size:12px}.laptop-swipe-button kbd{display:none}}
+
+/* Desktop discovery: stationary cards, no flying or rotating. */
+.simple-stage .swipe-card{transition:opacity .12s ease,box-shadow .15s ease;will-change:auto}
+.simple-stage .swipe-card.is-changing{opacity:.45;pointer-events:none}
+.simple-stage .swipe-card.is-leaving-right,.simple-stage .swipe-card.is-leaving-left{animation:none;transform:none;opacity:.45}
+@media(hover:hover) and (pointer:fine){.simple-stage .swipe-card,.simple-stage .swipe-card .profile-photo{cursor:default;touch-action:auto}.simple-stage .swipe-card{user-select:text;-webkit-user-select:text}}
+@media(max-width:700px){.simple-stage .swipe-card{user-select:none;-webkit-user-select:none}}
