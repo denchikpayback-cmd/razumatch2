@@ -201,7 +201,7 @@ async function handle(r: Request) {
             if (!other || !await matched(other))
                 return json({ error: 'Чат доступен после взаимной симпатии' }, 403);
             if (method === 'GET') {
-                const rows = await all('SELECT * FROM (SELECT * FROM messages WHERE (sender=? AND recipient=?) OR (sender=? AND recipient=?) ORDER BY created DESC LIMIT 200) ORDER BY created ASC', me, other, other, me);
+                const rows = await all('SELECT * FROM (SELECT * FROM messages WHERE (sender=? AND recipient=?) OR (sender=? AND recipient=?) ORDER BY created DESC LIMIT 200) AS recent_messages ORDER BY created ASC', me, other, other, me);
                 const result = [];
                 for (const x of rows) {
                     const attachments = [];
