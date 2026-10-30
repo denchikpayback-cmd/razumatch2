@@ -12,6 +12,13 @@ async function submitAuth(e) { e.preventDefault(); if (authBusy)
     const response = await fetch((authMode === 'recover' ? '/api/email/' : '/api/auth/') + action, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
     const out = await response.json();
     if (!response.ok) {
+        if (out.verificationRequired) {
+            verificationEmail = String(data.email || '');
+            renderAuth('verify');
+            const warning = $('#auth-error');
+            if (warning) warning.textContent = out.error || '';
+            return;
+        }
         if (out.needsLegacyLogin) {
             $('#auth-error').innerHTML = 'Для переноса один раз подтверди прежний аккаунт: <a href="/signin-with-chatgpt?return_to=%2Fui%2Findex.html" target="_top">Перенести старую анкету</a>';
             return;
