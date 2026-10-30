@@ -3,6 +3,7 @@ import pg from 'pg';
 import { randomBytes, createHash, scrypt as scryptCallback } from 'node:crypto';
 import { promisify } from 'node:util';
 import { getSiteUser } from '../../../site-auth';
+import { ensureEmailVerification, emailPool, newEmailToken, emailTokenHash, sendVerificationEmail } from '../../../email-verification';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -71,6 +72,43 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const { action } = await params;
   try {
+    if (action === 'resend-verification') {
+      const email = scrub(body?.email);
+      if (!/^\S+@\S+\.\S+$/.test(email) || email.length > 254) return json({ error: 'Введи корректный email' }, 400);
+      await ensureEmailVerification();
+      const result = await emailPool.query(
+        'SELECT v.user_id,v.last_sent_at,v.send_count,v.window_start FROM email_verifications v JOIN credentials c ON c.user_id=v.user_id WHERE lower(c.email)=$1 AND v.verified_at IS NULL',
+        [email]
+      );
+      const pending = result.rows[0];
+      if (!pending) return json(generic);
+      const now = Date.now();
+      if (now - Number(pending.last_sent_at) < 60000) return json({ error: 'Следующее письмо можно запросить через минуту.' }, 429);
+      if (now - Number(pending.window_start) < 3600000 && pending.send_count >= 5) return json({ error: 'Лимит писем исчерпан. Повтори через час.' }, 429);
+      const token = newEmailToken();
+      await emailPool.query(
+        'UPDATE email_verifications SET token_hash=$1,expires_at=$2,last_sent_at=$3,send_count=CASE WHEN window_start<$4 THEN 1 ELSE send_count+1 END,window_start=CASE WHEN window_start<$4 THEN $3 ELSE window_start END WHERE user_id=$5 AND verified_at IS NULL',
+        [emailTokenHash(token), now+1800000, now, now-3600000, pending.user_id]
+      );
+      try {
+        await sendVerificationEmail(email, token, new URL(request.url).origin);
+      } catch (err) {
+        console.error('Resend verification failed:', err);
+        return json({ error: 'Resend не отправил письмо. Проверь настройки в терминале.' }, 502);
+      }
+      return json(generic);
+    }
+    if (action === 'verify') {
+      const token = typeof body?.token === 'string' ? body.token : '';
+      if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return json({ error: 'Неверная ссылка' }, 400);
+      await ensureEmailVerification();
+      const now = Date.now();
+      const result = await emailPool.query(
+        'UPDATE email_verifications SET token_hash=NULL,verified_at=$1 WHERE token_hash=$2 AND verified_at IS NULL AND expires_at>$1 RETURNING user_id',
+        [now, emailTokenHash(token)]
+      );
+      return result.rows.length ? json({ ok: true }) : json({ error: 'Ссылка истекла или уже использована. Запроси новую.' }, 400);
+    }
     if (action === 'welcome') {
       const siteUser = await getSiteUser(request, {
         prepare: (sql: string) => ({ bind: (...params: unknown[]) => ({ first: async () => {
