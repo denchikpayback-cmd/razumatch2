@@ -21,4 +21,5 @@ CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY,user_id TEXT NO
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
 CREATE TABLE IF NOT EXISTS auth_rate_limits (key TEXT PRIMARY KEY,attempts INTEGER NOT NULL,reset_at BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS admin_chat_audit (id TEXT PRIMARY KEY,admin TEXT NOT NULL,participant_a TEXT NOT NULL,participant_b TEXT NOT NULL,viewed_at BIGINT NOT NULL,message_count INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS email_verifications (user_id TEXT PRIMARY KEY, token_hash TEXT, expires_at BIGINT NOT NULL DEFAULT 0, last_sent_at BIGINT NOT NULL DEFAULT 0, verified_at BIGINT, send_count INTEGER NOT NULL DEFAULT 0, window_start BIGINT NOT NULL DEFAULT 0);
 COMMIT;
